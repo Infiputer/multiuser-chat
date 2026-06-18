@@ -1,37 +1,157 @@
 # multiuser-chat
 
-This workspace builds a small supervised fine-tuning experiment for implicit multi-user routing.
+Small SFT experiment for teaching a chat model to handle multiple simultaneous users in one transcript.
 
-Pipeline:
+The setup is intentionally simple: each user message starts with a phone-number prefix, but the assistant reply does not. The model has to infer that the latest phone number identifies the active conversation, answer only that user, and keep prior context separated by phone number.
 
-1. Filter short, simple, multi-turn human-to-AI conversations from `allenai/WildChat`.
-2. Assign each source conversation a phone number.
-3. Interleave user/assistant turn pairs while preserving each conversation's internal order.
-4. Fine-tune `Qwen/Qwen2.5-0.5B-Instruct` with LoRA.
-5. Compare baseline and fine-tuned models on held-out interleaved conversations.
+This is useful for testing the kind of state isolation needed by shared inboxes, SMS agents, customer-support agents, or any service where one model process may see interleaved conversations from different people.
 
-The assistant target never includes chain-of-thought and never includes the phone prefix.
+## Example
+
+Single-user conversations are first collected independently:
+
+```text
++1-615-443-1773: please customize this bio: I worked at XYZ company for 6 years as a software developer
+assistant: I have gained extensive experience as a software developer during my tenure of over 6 years at XYZ company.
+
++1-615-443-1773: make it 100 words
+assistant: During my tenure of over 6 years at XYZ company, I have flourished as a software developer...
+```
+
+Then several conversations are interleaved:
+
+```text
++1-615-443-1773: please customize this bio: I worked at XYZ company for 6 years as a software developer
+assistant: I have gained extensive experience as a software developer during my tenure of over 6 years at XYZ company.
+
++1-919-809-4491: improve this apology email
+assistant: Please accept my sincere apologies for the confusion...
+
++1-615-443-1773: make it 100 words
+assistant: During my tenure of over 6 years at XYZ company, I have flourished as a software developer...
+
++1-919-809-4491: rephrase the first two sentences
+assistant: I would like to extend my sincere apologies...
+```
+
+The assistant is never trained to print the phone prefix. The phone number is only a routing/context key.
+
+## Data
+
+The data source is `allenai/WildChat`, filtered down to short, simple, multi-turn human-to-AI conversations.
+
+The filter keeps conversations that are:
+
+- English, non-toxic, and not redacted
+- 4 to 8 alternating user/assistant messages
+- short enough for a small local run
+- mostly plain English
+- likely to contain a follow-up dependency, such as "make it shorter", "change it", "same", "what about", or another short continuation
+
+The filter drops examples that are likely to distract from the routing task:
+
+- code blocks
+- pasted files
+- very long essays/scripts
+- translation/document-summarization tasks
+- prompt-injection style text
+- math/proof/step-by-step reasoning prompts
+- visible chain-of-thought requests
+
+Phone prefixes are generated as realistic-looking NANP numbers, while avoiding the fictional `555` exchange.
+
+## Model
+
+The run uses `Qwen/Qwen2.5-0.5B-Instruct`.
+
+It is already a chat model and supports a chat template. The fine-tune is LoRA SFT, not full-parameter training:
+
+- Base model: `Qwen/Qwen2.5-0.5B-Instruct`
+- Trainable adapter params: about 8.8M
+- Local GPU used: RTX 3060 12GB
+- Assistant targets: final answer only, no chain-of-thought
 
 ## Results
 
-See [`COMPARISON.md`](COMPARISON.md) for the base-model versus fine-tuned behavior report.
+See [`COMPARISON.md`](COMPARISON.md) for the full base-model versus fine-tuned behavior report.
 
-W&B run: https://wandb.ai/anothervibecoder-i-unemplyed/multiuser-phone-sft/runs/2l8h27ni
+Summary from the held-out interleaved split:
 
-Note: `wandb sync` produced the run URL above, but reported a 403 while uploading `wandb-metadata.json`; local W&B logs remain under `wandb/offline-run-20260618_061706-2l8h27ni`.
+| Metric | Base model | Fine-tuned |
+| --- | ---: | ---: |
+| Eval loss | 1.4751 | 0.4018 |
+| Perplexity | 4.3716 | 1.4945 |
+| Mean word F1 | 0.2971 | 0.5928 |
+| Phone-prefix violation rate | 0.0000 | 0.0000 |
 
-Commands:
+The fine-tuned model more often continued the correct per-phone conversation style and reproduced the expected edit/rewrite behavior from the held-out source conversations.
+
+W&B run:
+
+https://wandb.ai/anothervibecoder-i-unemplyed/multiuser-phone-sft/runs/2l8h27ni
+
+Note: `wandb sync` produced the run URL above, but reported a 403 while uploading `wandb-metadata.json`. Local W&B logs remain under `wandb/offline-run-20260618_061706-2l8h27ni`.
+
+## Run
+
+Install dependencies:
 
 ```bash
-python prepare_data.py
-python eval_model.py --out runs/baseline_eval.json
-python train_lora.py --wandb --wandb-project multiuser-chat --wandb-run-name qwen-phone-lora
-python eval_model.py --adapter runs/qwen-phone-lora --out runs/finetuned_eval.json
-python write_report.py --baseline runs/baseline_eval.json --finetuned runs/finetuned_eval.json --trainer-metrics runs/qwen-phone-lora/final_metrics.json --out runs/behavior_report.md
+pip install -r requirements.txt
 ```
 
-Phone prefixes are generated as realistic-looking NANP numbers, avoiding the fictional `555`
-exchange.
+Prepare interleaved data:
 
-If W&B is not logged in on the machine, `train_lora.py --wandb` automatically uses W&B
-offline mode and writes local run logs under `wandb/`.
+```bash
+python prepare_data.py --out-dir data_realistic
+```
+
+Evaluate the base model:
+
+```bash
+python eval_model.py \
+  --eval-file data_realistic/eval.jsonl \
+  --out runs/baseline_realistic_eval.json
+```
+
+Fine-tune with W&B logging:
+
+```bash
+python train_lora.py \
+  --train-file data_realistic/train.jsonl \
+  --eval-file data_realistic/eval.jsonl \
+  --out-dir runs/qwen-phone-lora-realistic \
+  --wandb \
+  --wandb-project multiuser-chat \
+  --wandb-run-name qwen-phone-lora-realistic
+```
+
+If W&B is not logged in, the script automatically uses offline mode and writes local logs under `wandb/`.
+
+Evaluate the adapter:
+
+```bash
+python eval_model.py \
+  --eval-file data_realistic/eval.jsonl \
+  --adapter runs/qwen-phone-lora-realistic \
+  --out runs/finetuned_realistic_eval.json
+```
+
+Write a Markdown report:
+
+```bash
+python write_report.py \
+  --baseline runs/baseline_realistic_eval.json \
+  --finetuned runs/finetuned_realistic_eval.json \
+  --trainer-metrics runs/qwen-phone-lora-realistic/final_metrics.json \
+  --out runs/behavior_report_realistic.md
+```
+
+## Files
+
+- `prepare_data.py`: filters WildChat and creates phone-prefix interleavings
+- `train_lora.py`: LoRA SFT on the interleaved data
+- `eval_model.py`: loss and generation comparison
+- `write_report.py`: writes the base-versus-finetuned Markdown report
+- `COMPARISON.md`: report from the completed run
+
