@@ -2,6 +2,9 @@
 
 ## Setup
 
+W&B run: https://wandb.ai/anothervibecoder-i-unemplyed/multiuser-phone-sft/runs/2l8h27ni
+
+
 - Base model: `Qwen/Qwen2.5-0.5B-Instruct`
 - Fine-tuning method: LoRA SFT on interleaved WildChat conversations
 - User messages use realistic-looking phone-number prefixes.

@@ -12,6 +12,14 @@ Pipeline:
 
 The assistant target never includes chain-of-thought and never includes the phone prefix.
 
+## Results
+
+See [`COMPARISON.md`](COMPARISON.md) for the base-model versus fine-tuned behavior report.
+
+W&B run: https://wandb.ai/anothervibecoder-i-unemplyed/multiuser-phone-sft/runs/2l8h27ni
+
+Note: `wandb sync` produced the run URL above, but reported a 403 while uploading `wandb-metadata.json`; local W&B logs remain under `wandb/offline-run-20260618_061706-2l8h27ni`.
+
 Commands:
 
 ```bash
