@@ -4,7 +4,9 @@ Small SFT experiment for teaching a chat model to handle multiple simultaneous u
 
 The setup is intentionally simple: each user message starts with a phone-number prefix, but the assistant reply does not. The model has to infer that the latest phone number identifies the active conversation, answer only that user, and keep prior context separated by phone number.
 
-This is useful for testing the kind of state isolation needed by shared inboxes, SMS agents, customer-support agents, or any service where one model process may see interleaved conversations from different people.
+This matters because real agents are not always one-user chatbots. Systems like OpenClaw, email agents, support agents, sales agents, or scheduling agents may talk to many people through the same interface at the same time. A human operator can keep separate conversations straight: one email thread is about a refund, another is about a meeting, and another is from a client with different preferences and history. An agent needs that same ability. If it mixes context between people, it might send the wrong information, reuse the wrong tone, leak private details, or answer a follow-up using another person's conversation history.
+
+This repo tests and trains that skill directly: handling interleaved conversations while keeping each user's state separate.
 
 ## Example
 
@@ -154,4 +156,3 @@ python write_report.py \
 - `eval_model.py`: loss and generation comparison
 - `write_report.py`: writes the base-versus-finetuned Markdown report
 - `COMPARISON.md`: report from the completed run
-
